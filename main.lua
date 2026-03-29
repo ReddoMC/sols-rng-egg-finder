@@ -13,6 +13,36 @@ sound3.SoundId = "rbxassetid://135692388807719"
 sound3.Parent = workspace
 sound3.Playing = false
 
+local specialeggs = {
+	["Sky Festival (1 in 2b)"] = "dreamer_egg",
+	["Eggsistance (1 in 307m)"] = "andromeda_egg",
+	["REVIVE (1 in 645m)"] = "angelic_egg",
+	["Eggore (1 in 700m)"] = "blooming_egg",
+	["Y.O.L.K (1 in 1.79b)"] = "egg_v2",
+	["Eggis (1 in 1.15b)"] = "the_egg_of_the_sky",
+	["Eastre (1 in 1b)"] = "forest_egg",
+	["Hatchwarden (1 in 40m)"] = "hatch_egg",
+	["Emperor (1 in 80m)"] = "royal_egg"
+}
+
+function isSpecialEgg(egg)
+	for index, eggname in pairs(specialeggs) do
+		if eggname == egg then
+			return index
+		end
+	end
+	return false
+end
+
+local Players = game:GetService("Players")
+
+local plr = Players.LocalPlayer
+if plr.Character then
+	local light = Instance.new("PointLight")
+	light.Parent = plr.Character.HumanoidRootPart
+	light.Range = 22
+end
+
 local PathfindingService = game:GetService("PathfindingService")
 
 local function getCharacter()
@@ -96,36 +126,6 @@ local function moveToTarget(target)
 	end
 
 	return true
-end
-
-local specialeggs = {
-	["Sky Festival (1 in 2b)"] = "dreamer_egg",
-	["Eggsistance (1 in 307m)"] = "andromeda_egg",
-	["REVIVE (1 in 645m)"] = "angelic_egg",
-	["Eggore (1 in 700m)"] = "blooming_egg",
-	["Y.O.L.K (1 in 1.79b)"] = "egg_v2",
-	["Eggis (1 in 1.15b)"] = "the_egg_of_the_sky",
-	["Eastre (1 in 1b)"] = "forest_egg",
-	["Hatchwarden (1 in 40m)"] = "hatch_egg",
-	["Emperor (1 in 80m)"] = "royal_egg"
-}
-
-function isSpecialEgg(egg)
-	for index, eggname in pairs(specialeggs) do
-		if eggname == egg then
-			return index
-		end
-	end
-	return false
-end
-
-local Players = game:GetService("Players")
-
-local plr = Players.LocalPlayer
-if plr.Character then
-	local light = Instance.new("PointLight")
-	light.Parent = plr.Character.HumanoidRootPart
-	light.Range = 22
 end
 
 while true do
