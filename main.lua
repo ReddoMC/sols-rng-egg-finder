@@ -146,63 +146,67 @@ local function pathTouchesWater(waypoints)
 end
 
 local function isReachable(target)
-	if not target then return false end
+	if badEggs[target] then return false end
 
 	local root = getRoot()
 
-	local path = PathfindingService:CreatePath({
-		AgentRadius = 2,
-		AgentHeight = 5,
-		AgentCanJump = true,
-		AgentJumpHeight = 8,
-		AgentMaxSlope = 35
-	})
+	-- different configs to try
+	local configs = {
+		{AgentMaxSlope = 35},
+		{AgentMaxSlope = 25}, -- stricter = avoids water edges
+		{AgentMaxSlope = 45}
+	}
 
-	path:ComputeAsync(root.Position, target.Position)
+	for _, config in ipairs(configs) do
+		local path = PathfindingService:CreatePath({
+			AgentRadius = 2,
+			AgentHeight = 5,
+			AgentCanJump = true,
+			AgentJumpHeight = 8,
+			AgentMaxSlope = config.AgentMaxSlope
+		})
 
-	if path.Status ~= Enum.PathStatus.Success then
-		return false
-	end
+		-- 🎯 try slight offsets (forces new routes)
+		local offsets = {
+			Vector3.new(0,0,0),
+			Vector3.new(6,0,0),
+			Vector3.new(-6,0,0),
+			Vector3.new(0,0,6),
+			Vector3.new(0,0,-6)
+		}
 
-	local waypoints = path:GetWaypoints()
+		for _, offset in ipairs(offsets) do
+			local goal = target.Position + offset
 
-	-- 🚫 reject water paths
-	if pathTouchesWater(waypoints) then
-		return false
-	end
+			path:ComputeAsync(root.Position, goal)
 
-	-- 🚫 reject big drops
-	for i = 2, #waypoints do
-		local drop = waypoints[i-1].Position.Y - waypoints[i].Position.Y
-		if drop > 6 then
-			return false
-		end
-	end
+			if path.Status == Enum.PathStatus.Success then
+				local waypoints = path:GetWaypoints()
 
-	return true
-end
+				-- 🚫 reject water paths
+				if not pathTouchesWater(waypoints) then
+					
+					-- 🚫 reject big drops
+					local safe = true
+					for i = 2, #waypoints do
+						local drop = waypoints[i-1].Position.Y - waypoints[i].Position.Y
+						if drop > 6 then
+							safe = false
+							break
+						end
+					end
 
--- Find closest egg
-local function getClosestEgg()
-	local root = getRoot()
-	local closest = nil
-	local shortest = math.huge
-
-	for _, egg in pairs(workspace:GetChildren()) do
-		if isValidEgg(egg) and egg:IsA("BasePart") then
-			local dist = (root.Position - egg.Position).Magnitude
-
-			if dist < shortest then
-				-- 🧠 ONLY pick reachable eggs
-				if isReachable(egg) then
-					shortest = dist
-					closest = egg
+					if safe then
+						return true -- ✅ FOUND A GOOD LAND PATH
+					end
 				end
 			end
 		end
 	end
 
-	return closest
+	-- ❌ after all attempts
+	badEggs[target] = true
+	return false
 end
 
 task.spawn(function()
