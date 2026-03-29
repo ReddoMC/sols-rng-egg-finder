@@ -13,6 +13,8 @@ sound3.SoundId = "rbxassetid://135692388807719"
 sound3.Parent = workspace
 sound3.Playing = false
 
+local lastEggTime = tick()
+
 local badEggs = {}
 
 local specialeggs = {
@@ -263,6 +265,8 @@ while true do
 	local targetEgg = getClosestEgg()
 
 	if targetEgg then
+		lastEggTime = tick() -- ✅ reset timer
+
 		local success = moveToTarget(targetEgg)
 
 		-- retry a few times if path fails
@@ -271,6 +275,16 @@ while true do
 			task.wait(0.3)
 			success = moveToTarget(targetEgg)
 			attempts += 1
+		end
+	else
+		-- ❌ no egg found
+		if tick() - lastEggTime > 15 then
+			local humanoid = getHumanoid()
+			local char = getCharacter()
+			char:BreakJoints()
+			
+			task.wait(3) -- wait for respawn
+			lastEggTime = tick() -- reset timer after respawn
 		end
 	end
 	
