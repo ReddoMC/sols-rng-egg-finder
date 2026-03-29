@@ -66,26 +66,12 @@ local function isValidEgg(egg)
 		or isSpecialEgg(egg.Name) ~= false
 end
 
--- Find closest egg
-local function getClosestEgg()
-	local root = getRoot()
-	local closest = nil
-	local shortest = math.huge
-
-	for _, egg in pairs(workspace:GetChildren()) do
-		if isValidEgg(egg) and egg:IsA("BasePart") then
-			local dist = (root.Position - egg.Position).Magnitude
-			if dist < shortest then
-				shortest = dist
-				closest = egg
-			end
-		end
-	end
-
-	return closest
+local function isDangerousStep(fromPos, toPos)
+	-- detect steep downward drops
+	local drop = fromPos.Y - toPos.Y
+	return drop > 6 -- tweak this (higher = more tolerant)
 end
 
--- Move with pathfinding
 local function moveToTarget(target)
 	if not target then return end
 
@@ -97,20 +83,23 @@ local function moveToTarget(target)
 		AgentHeight = 5,
 		AgentCanJump = true,
 		AgentJumpHeight = 8,
-		AgentMaxSlope = 45
+		AgentMaxSlope = 35 -- LOWER = avoids steep terrain
 	})
 
 	path:ComputeAsync(root.Position, target.Position)
 
-	local waypoints = path:GetWaypoints()
-
-	-- FAILSAFE: if path fails, just walk directly
 	if path.Status ~= Enum.PathStatus.Success then
-		humanoid:MoveTo(target.Position)
-		return
+		return false
 	end
 
+	local waypoints = path:GetWaypoints()
+
 	for i, waypoint in ipairs(waypoints) do
+		-- 🚫 skip dangerous drops
+		if i > 1 and isDangerousStep(waypoints[i-1].Position, waypoint.Position) then
+			return false -- force recompute
+		end
+
 		humanoid:MoveTo(waypoint.Position)
 
 		if waypoint.Action == Enum.PathWaypointAction.Jump then
@@ -119,13 +108,101 @@ local function moveToTarget(target)
 
 		local reached = humanoid.MoveToFinished:Wait(2)
 
-		-- FAILSAFE: stuck → recompute
+		-- 🧍 stuck detection
 		if not reached then
+			return false
+		end
+
+		-- 💀 falling / water fail-safe
+		if humanoid:GetState() == Enum.HumanoidStateType.Freefall then
 			return false
 		end
 	end
 
 	return true
+end
+
+local function isWater(part)
+	return part and part.Name == "WaterBlock"
+end
+
+local function pathTouchesWater(waypoints)
+	for _, waypoint in ipairs(waypoints) do
+		local region = Region3.new(
+			waypoint.Position - Vector3.new(2, 4, 2),
+			waypoint.Position + Vector3.new(2, 4, 2)
+		)
+
+		local parts = workspace:FindPartsInRegion3(region, nil, 20)
+
+		for _, part in pairs(parts) do
+			if isWater(part) then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
+local function isReachable(target)
+	if not target then return false end
+
+	local root = getRoot()
+
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 2,
+		AgentHeight = 5,
+		AgentCanJump = true,
+		AgentJumpHeight = 8,
+		AgentMaxSlope = 35
+	})
+
+	path:ComputeAsync(root.Position, target.Position)
+
+	if path.Status ~= Enum.PathStatus.Success then
+		return false
+	end
+
+	local waypoints = path:GetWaypoints()
+
+	-- 🚫 reject water paths
+	if pathTouchesWater(waypoints) then
+		return false
+	end
+
+	-- 🚫 reject big drops
+	for i = 2, #waypoints do
+		local drop = waypoints[i-1].Position.Y - waypoints[i].Position.Y
+		if drop > 6 then
+			return false
+		end
+	end
+
+	return true
+end
+
+-- Find closest egg
+local function getClosestEgg()
+	local root = getRoot()
+	local closest = nil
+	local shortest = math.huge
+
+	for _, egg in pairs(workspace:GetChildren()) do
+		if isValidEgg(egg) and egg:IsA("BasePart") then
+			local dist = (root.Position - egg.Position).Magnitude
+
+			if dist < shortest then
+				-- 🧠 ONLY pick reachable eggs
+				if isReachable(egg) then
+					shortest = dist
+					closest = egg
+				end
+			end
+		end
+	end
+
+	return closest
 end
 
 task.spawn(function()
@@ -152,7 +229,15 @@ while true do
 	local targetEgg = getClosestEgg()
 
 	if targetEgg then
-		moveToTarget(targetEgg)
+		local success = moveToTarget(targetEgg)
+
+		-- retry a few times if path fails
+		local attempts = 0
+		while not success and attempts < 3 do
+			task.wait(0.3)
+			success = moveToTarget(targetEgg)
+			attempts += 1
+		end
 	end
 	
     for index, egg in pairs(game.Workspace:GetChildren()) do
