@@ -34,6 +34,15 @@ function isSpecialEgg(egg)
 	return false
 end
 
+local Players = game:GetService("Players")
+
+local plr = Players.LocalPlayer
+if plr.Character then
+	local light = Instance.new("PointLight")
+	light.Parent = plr.Character.HumanoidRootPart
+	light.Range = 15
+end
+
 while true do
     for index, egg in pairs(game.Workspace:GetChildren()) do
         if egg:GetAttribute("Point") or string.find(egg.Name, "random_potion_egg") or isSpecialEgg(egg.Name) ~= false then
@@ -49,7 +58,7 @@ while true do
                 local highlight = Instance.new("Highlight")
 				local pointlight = Instance.new("PointLight")
 				pointlight.Parent = egg
-				pointlight.Brightness = 3
+				pointlight.Brightness = 1.5
 				pointlight.Range = 25
                 highlight.Parent = egg
 
