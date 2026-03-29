@@ -13,6 +13,8 @@ sound3.SoundId = "rbxassetid://135692388807719"
 sound3.Parent = workspace
 sound3.Playing = false
 
+local badEggs = {}
+
 local specialeggs = {
 	["Sky Festival (1 in 2b)"] = "dreamer_egg",
 	["Eggsistance (1 in 307m)"] = "andromeda_egg",
@@ -228,6 +230,34 @@ task.spawn(function()
 		task.wait(0.2)
 	end
 end)
+
+task.spawn(function()
+	while true do
+		task.wait(10)
+		table.clear(badEggs)
+	end
+end)
+
+local function getClosestEgg()
+	local root = getRoot()
+	local closest = nil
+	local shortest = math.huge
+
+	for _, egg in pairs(workspace:GetChildren()) do
+		if isValidEgg(egg) and egg:IsA("BasePart") then
+			local dist = (root.Position - egg.Position).Magnitude
+
+			if dist < shortest then
+				if isReachable(egg) then -- 🧠 smart filtering
+					shortest = dist
+					closest = egg
+				end
+			end
+		end
+	end
+
+	return closest
+end
 
 while true do
 	local targetEgg = getClosestEgg()
