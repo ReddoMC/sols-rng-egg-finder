@@ -40,7 +40,7 @@ local plr = Players.LocalPlayer
 if plr.Character then
 	local light = Instance.new("PointLight")
 	light.Parent = plr.Character.HumanoidRootPart
-	light.Range = 15
+	light.Range = 22
 end
 
 while true do
