@@ -1,22 +1,29 @@
+--// SERVICES
+local Players = game:GetService("Players")
+local PathfindingService = game:GetService("PathfindingService")
+
+local plr = Players.LocalPlayer
+
+--// STATE
+local lastMoveTime = tick()
+local lastEggTime = tick()
+local badEggs = {}
+
+--// SOUNDS
 local sound = Instance.new("Sound")
 sound.SoundId = "rbxassetid://131390520971848"
 sound.Parent = workspace
-sound.Playing = false
 
 local sound2 = Instance.new("Sound")
 sound2.SoundId = "rbxassetid://137448770594263"
 sound2.Parent = workspace
-sound2.Playing = false
 
 local sound3 = Instance.new("Sound")
 sound3.SoundId = "rbxassetid://135692388807719"
 sound3.Parent = workspace
-sound3.Playing = false
 
-local lastEggTime = tick()
 
-local badEggs = {}
-
+--// SPECIAL EGGS
 local specialeggs = {
 	["Sky Festival (1 in 2b)"] = "dreamer_egg",
 	["Eggsistance (1 in 307m)"] = "andromeda_egg",
@@ -29,55 +36,116 @@ local specialeggs = {
 	["Emperor (1 in 80m)"] = "royal_egg"
 }
 
-function isSpecialEgg(egg)
-	for index, eggname in pairs(specialeggs) do
-		if eggname == egg then
-			return index
-		end
-	end
-	return false
+local function isSpecialEgg(name)
+	return specialeggs[name] ~= nil
 end
 
-local Players = game:GetService("Players")
 
-local plr = Players.LocalPlayer
-if plr.Character then
-	local light = Instance.new("PointLight")
-	light.Parent = plr.Character.HumanoidRootPart
-	light.Range = 22
-end
-
-local PathfindingService = game:GetService("PathfindingService")
-
+--// PLAYER HELPERS
 local function getCharacter()
 	return plr.Character or plr.CharacterAdded:Wait()
 end
 
 local function getRoot()
-	local char = getCharacter()
-	return char:WaitForChild("HumanoidRootPart")
+	return getCharacter():WaitForChild("HumanoidRootPart")
 end
 
 local function getHumanoid()
-	local char = getCharacter()
-	return char:WaitForChild("Humanoid")
+	return getCharacter():WaitForChild("Humanoid")
 end
 
--- Check if egg is valid (reuse your logic)
+
+--// VALID EGG CHECK
 local function isValidEgg(egg)
-	return egg:GetAttribute("Point")
+	return egg
+		and egg:IsA("BasePart")
+		and (egg:GetAttribute("Point")
 		or string.find(egg.Name, "random_potion_egg")
-		or isSpecialEgg(egg.Name) ~= false
+		or isSpecialEgg(egg.Name))
 end
 
-local function isDangerousStep(fromPos, toPos)
-	-- detect steep downward drops
-	local drop = fromPos.Y - toPos.Y
-	return drop > 6 -- tweak this (higher = more tolerant)
+
+--// UI + HIGHLIGHT SYSTEM (RESTORED)
+local function decorateEgg(egg)
+	if egg:FindFirstChild("Highlight") then return end
+
+	local highlight = Instance.new("Highlight")
+	highlight.Parent = egg
+
+	local pointlight = Instance.new("PointLight")
+	pointlight.Parent = egg
+	pointlight.Brightness = 1.5
+	pointlight.Range = 25
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 1000
+	billboard.Size = UDim2.new(0, 100, 0, 40)
+	billboard.Parent = egg
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.TextStrokeTransparency = 0
+	label.TextScaled = true
+	label.Font = Enum.Font.FredokaOne
+	label.Parent = billboard
+
+	local points = egg:GetAttribute("Point")
+
+	if points then
+		label.Text = points .. " Points"
+		label.TextColor3 = egg:GetAttribute("TextColor") or Color3.new(1,1,1)
+		sound:Play()
+	else
+		if isSpecialEgg(egg.Name) then
+			label.Text = isSpecialEgg(egg.Name)
+			sound3:Play()
+		else
+			label.Text = "Special egg (" .. egg.Name .. ")"
+			sound2:Play()
+		end
+		label.TextColor3 = Color3.fromRGB(255, 0, 0)
+	end
 end
 
-local function moveToTarget(target)
-	if not target then return end
+
+--// CLOSEST EGG (FAST)
+local function getClosestEgg()
+	local root = getRoot()
+	local closest, shortest = nil, math.huge
+
+	for _, egg in pairs(workspace:GetChildren()) do
+		if isValidEgg(egg) and not badEggs[egg] then
+			decorateEgg(egg)
+
+			local dist = (root.Position - egg.Position).Magnitude
+			if dist < shortest then
+				shortest = dist
+				closest = egg
+			end
+		end
+	end
+
+	return closest
+end
+
+
+--// PATH SAFETY CHECK
+local function isPathSafe(waypoints)
+	for i = 2, #waypoints do
+		local drop = waypoints[i-1].Position.Y - waypoints[i].Position.Y
+		if drop > 6 then
+			return false
+		end
+	end
+	return true
+end
+
+
+--// MOVE SYSTEM
+local function moveTo(target)
+	if not target then return false end
 
 	local humanoid = getHumanoid()
 	local root = getRoot()
@@ -87,7 +155,7 @@ local function moveToTarget(target)
 		AgentHeight = 5,
 		AgentCanJump = true,
 		AgentJumpHeight = 8,
-		AgentMaxSlope = 35 -- LOWER = avoids steep terrain
+		AgentMaxSlope = 35
 	})
 
 	path:ComputeAsync(root.Position, target.Position)
@@ -98,26 +166,22 @@ local function moveToTarget(target)
 
 	local waypoints = path:GetWaypoints()
 
-	for i, waypoint in ipairs(waypoints) do
-		-- 🚫 skip dangerous drops
-		if i > 1 and isDangerousStep(waypoints[i-1].Position, waypoint.Position) then
-			return false -- force recompute
-		end
+	if not isPathSafe(waypoints) then
+		return false
+	end
 
-		humanoid:MoveTo(waypoint.Position)
+	for _, wp in ipairs(waypoints) do
+		lastMoveTime = tick()
 
-		if waypoint.Action == Enum.PathWaypointAction.Jump then
+		humanoid:MoveTo(wp.Position)
+
+		if wp.Action == Enum.PathWaypointAction.Jump then
 			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 		end
 
 		local reached = humanoid.MoveToFinished:Wait(2)
+		if not reached then return false end
 
-		-- 🧍 stuck detection
-		if not reached then
-			return false
-		end
-
-		-- 💀 falling / water fail-safe
 		if humanoid:GetState() == Enum.HumanoidStateType.Freefall then
 			return false
 		end
@@ -126,97 +190,14 @@ local function moveToTarget(target)
 	return true
 end
 
-local function isWater(part)
-	return part and part.Name == "WaterBlock"
-end
 
-local function pathTouchesWater(waypoints)
-	for _, waypoint in ipairs(waypoints) do
-		local region = Region3.new(
-			waypoint.Position - Vector3.new(2, 4, 2),
-			waypoint.Position + Vector3.new(2, 4, 2)
-		)
-
-		local parts = workspace:FindPartsInRegion3(region, nil, 20)
-
-		for _, part in pairs(parts) do
-			if isWater(part) then
-				return true
-			end
-		end
-	end
-
-	return false
-end
-
-local function isReachable(target)
-	if badEggs[target] then return false end
-
-	local root = getRoot()
-
-	-- different configs to try
-	local configs = {
-		{AgentMaxSlope = 35},
-		{AgentMaxSlope = 25}, -- stricter = avoids water edges
-		{AgentMaxSlope = 45}
-	}
-
-	for _, config in ipairs(configs) do
-		local path = PathfindingService:CreatePath({
-			AgentRadius = 2,
-			AgentHeight = 5,
-			AgentCanJump = true,
-			AgentJumpHeight = 8,
-			AgentMaxSlope = config.AgentMaxSlope
-		})
-
-		-- 🎯 try slight offsets (forces new routes)
-		local offsets = {
-			Vector3.new(0,0,0),
-			Vector3.new(6,0,0),
-			Vector3.new(-6,0,0),
-			Vector3.new(0,0,6),
-			Vector3.new(0,0,-6)
-		}
-
-		for _, offset in ipairs(offsets) do
-			local goal = target.Position + offset
-
-			path:ComputeAsync(root.Position, goal)
-
-			if path.Status == Enum.PathStatus.Success then
-				local waypoints = path:GetWaypoints()
-
-				-- 🚫 reject water paths
-				if not pathTouchesWater(waypoints) then
-					
-					-- 🚫 reject big drops
-					local safe = true
-					for i = 2, #waypoints do
-						local drop = waypoints[i-1].Position.Y - waypoints[i].Position.Y
-						if drop > 6 then
-							safe = false
-							break
-						end
-					end
-
-					if safe then
-						return true -- ✅ FOUND A GOOD LAND PATH
-					end
-				end
-			end
-		end
-	end
-
-	-- ❌ after all attempts
-	badEggs[target] = true
-	return false
-end
-
+--// PROMPTS
 task.spawn(function()
 	while true do
+		task.wait(0.2)
+
 		local root = getRoot()
-		
+
 		for _, egg in pairs(workspace:GetChildren()) do
 			if isValidEgg(egg) then
 				for _, obj in pairs(egg:GetDescendants()) do
@@ -228,11 +209,33 @@ task.spawn(function()
 				end
 			end
 		end
-		
-		task.wait(0.2)
 	end
 end)
 
+
+--// STUCK DETECTOR
+task.spawn(function()
+	local lastPos = nil
+
+	while true do
+		task.wait(2)
+
+		local root = getRoot()
+
+		if lastPos then
+			local moved = (root.Position - lastPos).Magnitude
+
+			if moved < 2 and (tick() - lastMoveTime) > 10 then
+				getCharacter():BreakJoints()
+			end
+		end
+
+		lastPos = root.Position
+	end
+end)
+
+
+--// CLEAN BAD EGGS
 task.spawn(function()
 	while true do
 		task.wait(10)
@@ -240,109 +243,29 @@ task.spawn(function()
 	end
 end)
 
-local function getClosestEgg()
-	local root = getRoot()
-	local closest = nil
-	local shortest = math.huge
 
-	for _, egg in pairs(workspace:GetChildren()) do
-		if isValidEgg(egg) and egg:IsA("BasePart") then
-			local dist = (root.Position - egg.Position).Magnitude
-
-			if dist < shortest then
-				if isReachable(egg) then -- 🧠 smart filtering
-					shortest = dist
-					closest = egg
-				end
-			end
-		end
-	end
-
-	return closest
-end
-
+--// MAIN LOOP
 while true do
-	local targetEgg = getClosestEgg()
+	local target = getClosestEgg()
 
-	if targetEgg then
-		lastEggTime = tick() -- ✅ reset timer
+	if target then
+		lastEggTime = tick()
 
-		local success = moveToTarget(targetEgg)
+		local success = moveTo(target)
 
-		-- retry a few times if path fails
-		local attempts = 0
-		while not success and attempts < 3 do
-			task.wait(0.3)
-			success = moveToTarget(targetEgg)
-			attempts += 1
+		local tries = 0
+		while not success and tries < 2 do
+			task.wait(0.2)
+			success = moveTo(target)
+			tries += 1
 		end
 	else
-		-- ❌ no egg found
 		if tick() - lastEggTime > 15 then
-			local humanoid = getHumanoid()
-			local char = getCharacter()
-			char:BreakJoints()
-			
-			task.wait(3) -- wait for respawn
-			lastEggTime = tick() -- reset timer after respawn
+			getCharacter():BreakJoints()
+			task.wait(3)
+			lastEggTime = tick()
 		end
 	end
-	
-    for index, egg in pairs(game.Workspace:GetChildren()) do
-        if egg:GetAttribute("Point") or string.find(egg.Name, "random_potion_egg") or isSpecialEgg(egg.Name) ~= false then
-			local identifier
-			if not egg:GetAttribute("Point") then
-				identifier = "special"
-			else
-				identifier = "points"
-			end
-            if not egg:FindFirstChild("Highlight") then
-				local points = egg:GetAttribute("Point")
 
-                local highlight = Instance.new("Highlight")
-				local pointlight = Instance.new("PointLight")
-				pointlight.Parent = egg
-				pointlight.Brightness = 1.5
-				pointlight.Range = 25
-                highlight.Parent = egg
-
-				local billboard = Instance.new("BillboardGui")
-				billboard.AlwaysOnTop = true
-				billboard.MaxDistance = 1000
-				billboard.Size = UDim2.new(0, 100, 0, 40)
-				billboard.Parent = egg
-
-				local label = Instance.new("TextLabel")
-				label.TextScaled = true
-				label.Size = UDim2.new(1, 0, 1, 0)
-				label.Position = UDim2.new(0, 0, 0, 0)
-				if identifier == "points" then
-					label.Text = points.." Points"
-					label.TextColor3 = egg:GetAttribute("TextColor")
-				else
-					if isSpecialEgg(egg.Name) ~= false then
-						label.Text = isSpecialEgg(egg.Name)
-					else
-						label.Text = "Special egg ("..egg.Name..")"
-					end
-					label.TextColor3 = Color3.fromRGB(255, 0, 0)
-				end
-				label.BackgroundTransparency = 1
-				label.TextStrokeTransparency = 0
-				label.Font = Enum.Font.FredokaOne
-				label.Parent = billboard
-
-				if identifier == "points" then
-					sound:Play()
-				else
-					if isSpecialEgg(egg.Name) ~= false then
-						sound3:Play()
-					else
-						sound2:Play()
-					end
-				end
-            end
-        end
-    end
-    task.wait(1)
+	task.wait(0.1)
 end
