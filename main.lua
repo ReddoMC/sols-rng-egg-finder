@@ -13,6 +13,91 @@ sound3.SoundId = "rbxassetid://135692388807719"
 sound3.Parent = workspace
 sound3.Playing = false
 
+local PathfindingService = game:GetService("PathfindingService")
+
+local function getCharacter()
+	return plr.Character or plr.CharacterAdded:Wait()
+end
+
+local function getRoot()
+	local char = getCharacter()
+	return char:WaitForChild("HumanoidRootPart")
+end
+
+local function getHumanoid()
+	local char = getCharacter()
+	return char:WaitForChild("Humanoid")
+end
+
+-- Check if egg is valid (reuse your logic)
+local function isValidEgg(egg)
+	return egg:GetAttribute("Point")
+		or string.find(egg.Name, "random_potion_egg")
+		or isSpecialEgg(egg.Name) ~= false
+end
+
+-- Find closest egg
+local function getClosestEgg()
+	local root = getRoot()
+	local closest = nil
+	local shortest = math.huge
+
+	for _, egg in pairs(workspace:GetChildren()) do
+		if isValidEgg(egg) and egg:IsA("BasePart") then
+			local dist = (root.Position - egg.Position).Magnitude
+			if dist < shortest then
+				shortest = dist
+				closest = egg
+			end
+		end
+	end
+
+	return closest
+end
+
+-- Move with pathfinding
+local function moveToTarget(target)
+	if not target then return end
+
+	local humanoid = getHumanoid()
+	local root = getRoot()
+
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 2,
+		AgentHeight = 5,
+		AgentCanJump = true,
+		AgentJumpHeight = 8,
+		AgentMaxSlope = 45
+	})
+
+	path:ComputeAsync(root.Position, target.Position)
+
+	local waypoints = path:GetWaypoints()
+
+	-- FAILSAFE: if path fails, just walk directly
+	if path.Status ~= Enum.PathStatus.Success then
+		humanoid:MoveTo(target.Position)
+		return
+	end
+
+	for i, waypoint in ipairs(waypoints) do
+		humanoid:MoveTo(waypoint.Position)
+
+		if waypoint.Action == Enum.PathWaypointAction.Jump then
+			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+		end
+
+		local reached = humanoid.MoveToFinished:Wait(2)
+
+		-- FAILSAFE: stuck → recompute
+		if not reached then
+			return false
+		end
+	end
+
+	return true
+end
+
 local specialeggs = {
 	["Sky Festival (1 in 2b)"] = "dreamer_egg",
 	["Eggsistance (1 in 307m)"] = "andromeda_egg",
@@ -44,6 +129,12 @@ if plr.Character then
 end
 
 while true do
+	local targetEgg = getClosestEgg()
+
+	if targetEgg then
+		moveToTarget(targetEgg)
+	end
+	
     for index, egg in pairs(game.Workspace:GetChildren()) do
         if egg:GetAttribute("Point") or string.find(egg.Name, "random_potion_egg") or isSpecialEgg(egg.Name) ~= false then
 			local identifier
