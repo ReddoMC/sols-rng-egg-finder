@@ -128,6 +128,26 @@ local function moveToTarget(target)
 	return true
 end
 
+task.spawn(function()
+	while true do
+		local root = getRoot()
+		
+		for _, egg in pairs(workspace:GetChildren()) do
+			if isValidEgg(egg) then
+				for _, obj in pairs(egg:GetDescendants()) do
+					if obj:IsA("ProximityPrompt") then
+						if (root.Position - egg.Position).Magnitude < 12 then
+							fireproximityprompt(obj)
+						end
+					end
+				end
+			end
+		end
+		
+		task.wait(0.2)
+	end
+end)
+
 while true do
 	local targetEgg = getClosestEgg()
 
